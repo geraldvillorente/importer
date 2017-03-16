@@ -1,0 +1,4 @@
+name = "import"
+description = "Import"
+core = 7.x
+package = custom

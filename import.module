@@ -1,0 +1,172 @@
+<?php
+
+/**
+ * Implements hook_permission().
+ */
+function import_permission() {
+  return array(
+    'import smartphone data' => array(
+      'title' => t('import smartphones data'),
+      'description' => t('import smartphones data'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function import_menu() {
+  $items = array();
+
+
+  $items['admin/config/custom/upload_form'] = array(
+    'title' => 'Import file form',
+    'description' => 'import form',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('import_upload_file_form'),
+    'access arguments' => array('import smartphones data'),
+    'file' => 'import.pages.inc',
+  );
+
+  return $items;
+
+}
+
+
+function _import_smartphones($rows, $images) {
+  global $user;
+  $account = clone $user;
+
+  foreach ($rows as $row) {
+    try {
+      $sku = trim($row[0]);
+      $title = trim($row[1]);
+      $description = trim($row[2]);
+      $list_price = trim($row[3]);
+      $sell_price = trim($row[4]);
+      $image = trim($row[5]);
+      $manufacturer = trim($row[6]);
+      $current_stock = trim($row[7]);
+      $os = trim($row[8]);
+
+
+      if ($sku && $os && $manufacturer && $title) {
+        //Look if we already have an manufacture with the same title.
+        $manufacturer_nid = _import_get_manufacturer_nid_by_title($manufacturer);
+        if (!$manufacturer_nid) {
+          //If not create one.
+          $wrp = _import_create_manufacturer($manufacturer);
+          $manufacturer_nid = $wrp->value(array('identifier' => TRUE));
+        }
+        $entity = entity_create('node', array('type' => 'smartphone'));
+        $wrp = entity_metadata_wrapper('node', $entity);
+        $wrp->author->set($account->uid);
+        $wrp->title->set($title);
+        $wrp->field_manufacturer->set($manufacturer_nid);
+        $wrp->field_sku->set($sku);
+        //Look if we already have an os with the same title.
+        $os_tid = _import_get_os_term_by_name($os);
+        if (!$os_tid) {
+          //Create district term;
+          $voc = taxonomy_vocabulary_machine_name_load('os');
+          $term = new stdClass();
+          $term->name = $os;
+          $term->vid = $voc->vid;
+          taxonomy_term_save($term);
+          $os_tid = $term->tid;
+          //If not create one.
+        }
+        $wrp->field_os->set($os_tid);
+        if ($description) {
+          $wrp->field_description->set($description);
+        }
+        if ($list_price) {
+          $price = str_replace("$", "", $list_price);
+          $price = str_replace(",", "", $price);
+          $wrp->field_list_price->set($price);
+        }
+        if ($sell_price) {
+          $price = str_replace("$", "", $sell_price);
+          $price = str_replace(",", "", $price);
+          $wrp->field_sell_price->set($price);
+        }
+        if ($current_stock) {
+          $wrp->field_current_stock->set($current_stock);
+        }
+
+        if ($image) {
+          //@todo get the image from the images dir
+          if (isset($images[$image])) {
+            $uri = $images[$image];
+            $filepath = drupal_realpath($uri);
+            // Create managed File object and associate with Image field.
+            $file = (object) array(
+              'uid' => 1,
+              'uri' => $filepath,
+              'filemime' => file_get_mimetype($filepath),
+              'status' => 1,
+              'display' => 1
+            );
+            intval("1,220.71");
+            // We save the file to the root of the files directory.
+            $file = file_copy($file, 'public://');
+            $wrp->field_product_image->set((array) $file);
+          }
+        }
+
+        $wrp->save();
+      }
+      else {
+        drupal_set_message(t('No required fields'));
+      }
+    }
+    catch (Exception $e) {
+      drupal_set_message(t('Error processing row'));
+    }
+  }
+}
+
+/**
+ * @param $title
+ *  The title of the manufacturer to search for
+ * @return mixed
+ *  the existing node nid if found in the db, FALSE if not
+ */
+function _import_get_manufacturer_nid_by_title($title) {
+  $query = new EntityFieldQuery();
+  $query->entityCondition('entity_type', 'node');
+  $query->entityCondition('bundle', 'manufacturer');
+  $query->propertyCondition('title', $title);
+  $res = $query->execute();
+  if (!empty($res['node'])) {
+    $node = array_shift($res['node']);
+    return $node->nid;
+  }
+  return FALSE;
+}
+
+/**
+ * @param $title
+ * @return EntityMetadataWrapper
+ */
+function _import_create_manufacturer($title) {
+  global $user;
+  $account = clone $user;
+  $entity = entity_create('node', array('type' => 'manufacturer'));
+  $wrp = entity_metadata_wrapper('node', $entity);
+  $wrp->author->set($account->uid);
+  $wrp->title->set($title);
+  $wrp->save();
+  return $wrp;
+}
+
+function _import_get_os_term_by_name($term_name) {
+  $terms = taxonomy_get_term_by_name($term_name);
+  $voc = taxonomy_vocabulary_machine_name_load("os");
+  foreach ($terms as $term) {
+    if ($term->vid == $voc->vid) {
+      return $term->tid;
+    }
+  }
+  return FALSE;
+}
